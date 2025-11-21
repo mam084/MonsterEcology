@@ -5,304 +5,382 @@ function parseCR(value) {
   const s = String(value).trim();
 
   if (s.includes("/")) {
-    const parts = s.split("/");
-    const num = parseFloat(parts[0]);
-    const den = parseFloat(parts[1]);
+    const [n, d] = s.split("/");
+    const num = parseFloat(n);
+    const den = parseFloat(d);
     if (!isNaN(num) && !isNaN(den) && den !== 0) {
       return num / den;
     }
   }
 
-  const cleaned = s.replace("+", ""); // e.g., "20+" -> "20"
+  const cleaned = s.replace("+", ""); // e.g. "20+" -> "20"
   const f = parseFloat(cleaned);
   return isNaN(f) ? NaN : f;
 }
 
-// ------- Tooltip -------
+// ------- Global state & DOM refs -------
+
 const tooltip = d3.select("#tooltip");
 
-// ------- Shared chart config -------
-const chartWidth = 800;
-const chartHeight = 360;
-const margin = { top: 20, right: 10, bottom: 80, left: 60 };
+const dimensionSelect = document.getElementById("dimension-select");
+const metricSelect = document.getElementById("metric-select");
+const crMinInput = document.getElementById("cr-min");
+const crMaxInput = document.getElementById("cr-max");
+const crRangeNote = document.getElementById("cr-range-note");
+const flyFilterCheckbox = document.getElementById("fly-filter");
+const swimFilterCheckbox = document.getElementById("swim-filter");
+const captionEl = document.getElementById("explorer-caption");
+const summaryEl = document.getElementById("explorer-summary");
 
-let selectedEnvironment = null;
+const chartWidth = 880;
+const chartHeight = 420;
+const margin = { top: 20, right: 10, bottom: 100, left: 70 };
 
-// Text update when environment is clicked
-function updateSelectionText() {
-  const el = document.getElementById("env-selection-text");
-  if (!selectedEnvironment) {
-    el.textContent = "No environment selected yet.";
-  } else {
-    el.textContent = `Selected environment: ${selectedEnvironment}`;
-  }
-}
+let monsters = []; // full monster list (one row per monster)
+let crMinData = 0;
+let crMaxData = 0;
 
-// ------- Main load -------
-d3.csv("monsters_ecology.csv").then((raw) => {
-  // Explode comma-separated environments into one row per (monster, environment)
-  const exploded = [];
+const metricLabels = {
+  count: "Number of monsters",
+  avgCR: "Average challenge rating",
+  avgHP: "Average hit points",
+  avgAC: "Average armor class",
+  pctFly: "Percent of monsters that can fly",
+  pctSwim: "Percent of monsters that can swim",
+};
 
-  raw.forEach((d) => {
+const dimensionLabels = {
+  environment: "environment",
+  type: "monster type",
+  size: "size",
+};
+
+// ------- SVG setup -------
+
+const svg = d3
+  .select("#explorer-chart")
+  .append("svg")
+  .attr("viewBox", [0, 0, chartWidth, chartHeight]);
+
+const innerWidth = chartWidth - margin.left - margin.right;
+const innerHeight = chartHeight - margin.top - margin.bottom;
+
+const g = svg
+  .append("g")
+  .attr("transform", `translate(${margin.left},${margin.top})`);
+
+const xAxisG = g.append("g").attr("transform", `translate(0,${innerHeight})`);
+const yAxisG = g.append("g");
+
+const xLabel = g
+  .append("text")
+  .attr("x", innerWidth / 2)
+  .attr("y", innerHeight + 70)
+  .attr("text-anchor", "middle");
+
+const yLabel = g
+  .append("text")
+  .attr("x", -innerHeight / 2)
+  .attr("y", -50)
+  .attr("transform", "rotate(-90)")
+  .attr("text-anchor", "middle");
+
+// ------- Load data -------
+
+d3.csv("monsters_ecology.csv").then((data) => {
+  monsters = data.map((d) => {
+    // Use 'environment' or fall back to 'env_list' if that's what you have
+    const envField = d.environment || d.env_list || "";
+    const env = envField.split(",")[0].trim(); // take first env for grouping
+
     const crNum = parseCR(d.cr);
-    const envStr = (d.environment || "").trim();
+    const hpNum = d.hp ? +d.hp : NaN;
+    const acNum = d.ac ? +d.ac : NaN;
+    const flySpeed = d.speed_fly ? +d.speed_fly : 0;
+    const swimSpeed = d.speed_swim ? +d.speed_swim : 0;
 
-    if (!envStr) return;
-
-    envStr.split(",").forEach((e) => {
-      const env = e.trim();
-      if (!env) return;
-      exploded.push({
-        environment: env,
-        cr_num: crNum,
-      });
-    });
+    return {
+      name: d.name,
+      type: d.type || "Unknown",
+      size: d.size || "Unknown",
+      environment: env || "Unknown",
+      cr_raw: d.cr,
+      cr_num: crNum,
+      hp: hpNum,
+      ac: acNum,
+      hasFly: flySpeed > 0,
+      hasSwim: swimSpeed > 0,
+    };
   });
 
-  // Rollups
-  const envCounts = Array.from(
-    d3.rollup(
-      exploded,
-      (v) => v.length,
-      (d) => d.environment
-    ),
-    ([environment, count]) => ({ environment, count })
-  ).sort((a, b) => d3.descending(a.count, b.count));
+  const crValues = monsters
+    .map((d) => d.cr_num)
+    .filter((x) => !isNaN(x))
+    .sort((a, b) => a - b);
 
-  const envAvgCR = Array.from(
-    d3.rollup(
-      exploded,
-      (v) => d3.mean(v, (d) => d.cr_num),
-      (d) => d.environment
-    ),
-    ([environment, avgCR]) => ({ environment, avgCR })
-  ).sort((a, b) => d3.descending(a.avgCR, b.avgCR));
+  crMinData = crValues[0] ?? 0;
+  crMaxData = crValues[crValues.length - 1] ?? 30;
 
-  // Use the same order of environments for both charts
-  const envOrder = envCounts.map((d) => d.environment);
+  // Set default CR range in inputs
+  crMinInput.value = crMinData;
+  crMaxInput.value = crMaxData;
+  crRangeNote.textContent = `Data CR range: ${crMinData} to ${crMaxData}`;
 
-  buildEnvCountsChart(envCounts, envOrder);
-  buildEnvCRChart(envAvgCR, envOrder);
-  updateSelectionText();
+  updateCaption();
+  updateChart();
+
+  summaryEl.textContent =
+    "Tip: try narrowing the CR range to low-level monsters, " +
+    "then switch the metric between count, average CR, and % that can fly " +
+    "to see how each grouping changes.";
 });
 
-// ------- Chart 1: Monster counts by environment -------
-function buildEnvCountsChart(data, envOrder) {
-  const svg = d3
-    .select("#env-counts-chart")
-    .append("svg")
-    .attr("viewBox", [0, 0, chartWidth, chartHeight]);
+// ------- Core update pipeline -------
 
-  const innerWidth = chartWidth - margin.left - margin.right;
-  const innerHeight = chartHeight - margin.top - margin.bottom;
+function getFilteredData() {
+  const crMin = parseFloat(crMinInput.value);
+  const crMax = parseFloat(crMaxInput.value);
+  const onlyFly = flyFilterCheckbox.checked;
+  const onlySwim = swimFilterCheckbox.checked;
 
+  return monsters.filter((d) => {
+    if (isNaN(d.cr_num)) return false;
+    if (!isNaN(crMin) && d.cr_num < crMin) return false;
+    if (!isNaN(crMax) && d.cr_num > crMax) return false;
+    if (onlyFly && !d.hasFly) return false;
+    if (onlySwim && !d.hasSwim) return false;
+    return true;
+  });
+}
+
+function computeGroups(filtered, dimension, metric) {
+  const keyFn = (d) => d[dimension] || "Unknown";
+
+  const roll = d3.rollup(
+    filtered,
+    (v) => {
+      if (v.length === 0) return NaN;
+
+      switch (metric) {
+        case "count":
+          return v.length;
+        case "avgCR":
+          return d3.mean(v, (d) => d.cr_num);
+        case "avgHP":
+          return d3.mean(v, (d) => (isNaN(d.hp) ? null : d.hp));
+        case "avgAC":
+          return d3.mean(v, (d) => (isNaN(d.ac) ? null : d.ac));
+        case "pctFly":
+          return (
+            (d3.mean(v, (d) => (d.hasFly ? 1 : 0)) || 0) * 100
+          );
+        case "pctSwim":
+          return (
+            (d3.mean(v, (d) => (d.hasSwim ? 1 : 0)) || 0) * 100
+          );
+        default:
+          return NaN;
+      }
+    },
+    keyFn
+  );
+
+  const result = Array.from(roll, ([key, value]) => ({
+    key,
+    value,
+  })).filter((d) => d.value != null && !isNaN(d.value));
+
+  // Sort by value (desc), but keep key for display
+  result.sort((a, b) => d3.descending(a.value, b.value));
+
+  return result;
+}
+
+function updateCaption() {
+  const dim = dimensionSelect.value;
+  const metric = metricSelect.value;
+
+  const dimLabel = dimensionLabels[dim] || "group";
+  const metricLabel = metricLabels[metric] || "value";
+
+  captionEl.innerHTML =
+    `Each bar shows the <strong>${metricLabel.toLowerCase()}</strong> ` +
+    `for each <strong>${dimLabel}</strong>, ` +
+    `after applying the CR range and movement filters above. ` +
+    `Change the dropdowns to pivot between different groupings and metrics.`;
+}
+
+function updateChart() {
+  const dimension = dimensionSelect.value;
+  const metric = metricSelect.value;
+
+  const filtered = getFilteredData();
+  const groups = computeGroups(filtered, dimension, metric);
+
+  if (filtered.length === 0 || groups.length === 0) {
+    summaryEl.textContent =
+      "No monsters match the current filters. Widen the CR range or turn off one of the movement filters.";
+  } else {
+    const totalMonsters = filtered.length;
+    const topGroup = groups[0];
+    const metricLabel = metricLabels[metric];
+
+    summaryEl.textContent =
+      `Showing ${groups.length} ${dimensionLabels[dimension]} groups ` +
+      `(${totalMonsters} monsters after filters). ` +
+      `${topGroup ? `Top group: ${topGroup.key} (${metricLabel}: ${formatMetricValue(metric, topGroup.value)}).` : ""}`;
+  }
+
+  // Scales
   const x = d3
     .scaleBand()
-    .domain(envOrder)
+    .domain(groups.map((d) => d.key))
     .range([0, innerWidth])
-    .padding(0.12);
+    .padding(0.15);
 
   const y = d3
     .scaleLinear()
-    .domain([0, d3.max(data, (d) => d.count)])
+    .domain([0, d3.max(groups, (d) => d.value) || 1])
     .nice()
     .range([innerHeight, 0]);
-
-  const g = svg
-    .append("g")
-    .attr("transform", `translate(${margin.left},${margin.top})`);
 
   // Axes
-  g.append("g")
-    .attr("transform", `translate(0,${innerHeight})`)
-    .call(
-      d3
-        .axisBottom(x)
-        .tickSizeOuter(0)
-        .tickPadding(4)
-    )
+  const xAxis = d3
+    .axisBottom(x)
+    .tickSizeOuter(0)
+    .tickPadding(4);
+
+  xAxisG
+    .transition()
+    .duration(400)
+    .call(xAxis)
     .selectAll("text")
     .attr("transform", "rotate(-45)")
     .style("text-anchor", "end");
 
-  g.append("g").call(d3.axisLeft(y));
+  const yAxis = d3
+    .axisLeft(y)
+    .ticks(6);
 
-  g.append("text")
-    .attr("x", innerWidth / 2)
-    .attr("y", innerHeight + 60)
-    .attr("text-anchor", "middle")
-    .text("Environment");
+  yAxisG.transition().duration(400).call(yAxis);
 
-  g.append("text")
-    .attr("x", -innerHeight / 2)
-    .attr("y", -40)
-    .attr("text-anchor", "middle")
-    .attr("transform", "rotate(-90)")
-    .text("Number of monsters");
+  xLabel.text(
+    dimensionLabels[dimension]
+      ? capitalizeFirst(dimensionLabels[dimension])
+      : "Group"
+  );
+
+  yLabel.text(metricLabels[metric] || "Value");
 
   // Bars
-  g.selectAll("rect.bar")
-    .data(data)
-    .join("rect")
-    .attr("class", "bar")
-    .attr("x", (d) => x(d.environment))
-    .attr("y", (d) => y(d.count))
-    .attr("width", x.bandwidth())
-    .attr("height", (d) => innerHeight - y(d.count))
-    .attr("fill", (d) =>
-      d.environment === selectedEnvironment ? "#7f5af0" : "#4f46e5"
-    )
-    .on("mouseover", function (event, d) {
-      d3.select(this).attr("fill", "#9f7aea");
+  const bars = g.selectAll("rect.bar").data(groups, (d) => d.key);
 
-      tooltip
-        .style("opacity", 1)
-        .html(
-          `<strong>${d.environment}</strong><br/>Monsters: ${d.count}`
-        )
-        .style("left", event.pageX + 12 + "px")
-        .style("top", event.pageY - 20 + "px");
-    })
-    .on("mousemove", function (event) {
-      tooltip
-        .style("left", event.pageX + 12 + "px")
-        .style("top", event.pageY - 20 + "px");
-    })
-    .on("mouseout", function (event, d) {
-      tooltip.style("opacity", 0);
-
-      d3.select(this).attr(
-        "fill",
-        d.environment === selectedEnvironment ? "#7f5af0" : "#4f46e5"
-      );
-    })
-    .on("click", function (event, d) {
-      selectedEnvironment =
-        selectedEnvironment === d.environment ? null : d.environment;
-      updateSelectionText();
-
-      // Re-color all bars based on the new selection
-      d3.select("#env-counts-chart")
-        .selectAll("rect.bar")
-        .attr("fill", (b) =>
-          b.environment === selectedEnvironment ? "#7f5af0" : "#4f46e5"
-        );
-
-      // Highlight corresponding bar in the CR chart
-      d3.select("#env-cr-chart")
-        .selectAll("rect.bar-cr")
-        .attr("fill", (b) =>
-          b.environment === selectedEnvironment ? "#f97316" : "#38bdf8"
-        );
-    });
+  bars
+    .join(
+      (enter) =>
+        enter
+          .append("rect")
+          .attr("class", "bar")
+          .attr("x", (d) => x(d.key))
+          .attr("y", innerHeight)
+          .attr("width", x.bandwidth())
+          .attr("height", 0)
+          .attr("rx", 3)
+          .attr("ry", 3)
+          .attr("fill", "#4f46e5")
+          .on("mouseover", function (event, d) {
+            d3.select(this).attr("fill", "#7f5af0");
+            tooltip
+              .style("opacity", 1)
+              .html(
+                `<strong>${d.key}</strong><br/>` +
+                  `${metricLabels[metric]}: ${formatMetricValue(
+                    metric,
+                    d.value
+                  )}`
+              );
+          })
+          .on("mousemove", function (event) {
+            tooltip
+              .style("left", event.pageX + 12 + "px")
+              .style("top", event.pageY - 24 + "px");
+          })
+          .on("mouseout", function () {
+            d3.select(this).attr("fill", "#4f46e5");
+            tooltip.style("opacity", 0);
+          })
+          .call((enter) =>
+            enter
+              .transition()
+              .duration(500)
+              .attr("y", (d) => y(d.value))
+              .attr("height", (d) => innerHeight - y(d.value))
+          ),
+      (update) =>
+        update
+          .transition()
+          .duration(500)
+          .attr("x", (d) => x(d.key))
+          .attr("width", x.bandwidth())
+          .attr("y", (d) => y(d.value))
+          .attr("height", (d) => innerHeight - y(d.value)),
+      (exit) =>
+        exit
+          .transition()
+          .duration(400)
+          .attr("y", innerHeight)
+          .attr("height", 0)
+          .remove()
+    );
 }
 
-// ------- Chart 2: Average CR by environment -------
-function buildEnvCRChart(data, envOrder) {
-  const svg = d3
-    .select("#env-cr-chart")
-    .append("svg")
-    .attr("viewBox", [0, 0, chartWidth, chartHeight]);
+// ------- Helpers -------
 
-  const innerWidth = chartWidth - margin.left - margin.right;
-  const innerHeight = chartHeight - margin.top - margin.bottom;
-
-  const x = d3
-    .scaleBand()
-    .domain(envOrder)
-    .range([0, innerWidth])
-    .padding(0.12);
-
-  const y = d3
-    .scaleLinear()
-    .domain([0, d3.max(data, (d) => d.avgCR || 0)])
-    .nice()
-    .range([innerHeight, 0]);
-
-  const g = svg
-    .append("g")
-    .attr("transform", `translate(${margin.left},${margin.top})`);
-
-  g.append("g")
-    .attr("transform", `translate(0,${innerHeight})`)
-    .call(
-      d3
-        .axisBottom(x)
-        .tickSizeOuter(0)
-        .tickPadding(4)
-    )
-    .selectAll("text")
-    .attr("transform", "rotate(-45)")
-    .style("text-anchor", "end");
-
-  g.append("g").call(d3.axisLeft(y));
-
-  g.append("text")
-    .attr("x", innerWidth / 2)
-    .attr("y", innerHeight + 60)
-    .attr("text-anchor", "middle")
-    .text("Environment");
-
-  g.append("text")
-    .attr("x", -innerHeight / 2)
-    .attr("y", -40)
-    .attr("text-anchor", "middle")
-    .attr("transform", "rotate(-90)")
-    .text("Average CR");
-
-  g.selectAll("rect.bar-cr")
-    .data(data)
-    .join("rect")
-    .attr("class", "bar-cr")
-    .attr("x", (d) => x(d.environment))
-    .attr("y", (d) => y(d.avgCR || 0))
-    .attr("width", x.bandwidth())
-    .attr("height", (d) => innerHeight - y(d.avgCR || 0))
-    .attr("fill", (d) =>
-      d.environment === selectedEnvironment ? "#f97316" : "#38bdf8"
-    )
-    .on("mouseover", function (event, d) {
-      d3.select(this).attr("fill", "#fb923c");
-
-      tooltip
-        .style("opacity", 1)
-        .html(
-          `<strong>${d.environment}</strong><br/>Average CR: ${d.avgCR.toFixed(
-            2
-          )}`
-        )
-        .style("left", event.pageX + 12 + "px")
-        .style("top", event.pageY - 20 + "px");
-    })
-    .on("mousemove", function (event) {
-      tooltip
-        .style("left", event.pageX + 12 + "px")
-        .style("top", event.pageY - 20 + "px");
-    })
-    .on("mouseout", function (event, d) {
-      tooltip.style("opacity", 0);
-
-      d3.select(this).attr(
-        "fill",
-        d.environment === selectedEnvironment ? "#f97316" : "#38bdf8"
-      );
-    })
-    .on("click", function (event, d) {
-      // Allow clicking in either chart to change the selection
-      selectedEnvironment =
-        selectedEnvironment === d.environment ? null : d.environment;
-      updateSelectionText();
-
-      d3.select("#env-counts-chart")
-        .selectAll("rect.bar")
-        .attr("fill", (b) =>
-          b.environment === selectedEnvironment ? "#7f5af0" : "#4f46e5"
-        );
-
-      d3.select("#env-cr-chart")
-        .selectAll("rect.bar-cr")
-        .attr("fill", (b) =>
-          b.environment === selectedEnvironment ? "#f97316" : "#38bdf8"
-        );
-    });
+function formatMetricValue(metric, value) {
+  if (metric === "count") {
+    return d3.format(",")(value);
+  }
+  if (metric === "pctFly" || metric === "pctSwim") {
+    return d3.format(".1f")(value) + "%";
+  }
+  if (metric === "avgCR") {
+    return d3.format(".2f")(value);
+  }
+  if (metric === "avgHP" || metric === "avgAC") {
+    return d3.format(".1f")(value);
+  }
+  return d3.format(".2f")(value);
 }
+
+function capitalizeFirst(str) {
+  if (!str) return "";
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// ------- Event wiring -------
+
+dimensionSelect.addEventListener("change", () => {
+  updateCaption();
+  updateChart();
+});
+
+metricSelect.addEventListener("change", () => {
+  updateCaption();
+  updateChart();
+});
+
+crMinInput.addEventListener("change", () => {
+  updateChart();
+});
+
+crMaxInput.addEventListener("change", () => {
+  updateChart();
+});
+
+flyFilterCheckbox.addEventListener("change", () => {
+  updateChart();
+});
+
+swimFilterCheckbox.addEventListener("change", () => {
+  updateChart();
+});
