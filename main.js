@@ -69,29 +69,68 @@ const g = svg
   .append("g")
   .attr("transform", `translate(${margin.left},${margin.top})`);
 
-const xAxisG = g.append("g").attr("transform", `translate(0,${innerHeight})`);
-const yAxisG = g.append("g");
+const xAxisG = g
+  .append("g")
+  .attr("class", "x-axis")
+  .attr("transform", `translate(0,${innerHeight})`);
+
+const yAxisG = g
+  .append("g")
+  .attr("class", "y-axis");
 
 const xLabel = g
   .append("text")
+  .attr("class", "axis-label")
   .attr("x", innerWidth / 2)
   .attr("y", innerHeight + 70)
   .attr("text-anchor", "middle");
 
 const yLabel = g
   .append("text")
+  .attr("class", "axis-label")
   .attr("x", -innerHeight / 2)
   .attr("y", -50)
   .attr("transform", "rotate(-90)")
   .attr("text-anchor", "middle");
 
+
 // ------- Load data -------
 
 d3.csv("monsters_ecology.csv").then((data) => {
   monsters = data.map((d) => {
-    // Use 'environment' or fall back to 'env_list' if that's what you have
-    const envField = d.environment || d.env_list || "";
-    const env = envField.split(",")[0].trim(); // take first env for grouping
+    // 1) ENVIRONMENT CLEANUP
+    // Prefer environment; fall back to env_list if present
+    let envRaw = (d.environment || d.env_list || "").toString().trim();
+
+    // If it's a comma-separated list like "Forest, Hill", take the first one
+    if (envRaw.includes(",")) {
+      envRaw = envRaw.split(",")[0].trim();
+    }
+
+    // Normalize case for environment labels, but allow null if missing
+    let environment = null;
+    if (envRaw !== "") {
+      const lower = envRaw.toLowerCase();
+      environment = lower.charAt(0).toUpperCase() + lower.slice(1);
+    }
+
+    // 2) SIZE CLEANUP (fix Tiny vs tiny, Large vs large, etc.)
+    let sizeRaw = (d.size || "Unknown").toString().trim();
+    if (sizeRaw !== "") {
+      const lowerSize = sizeRaw.toLowerCase();
+      sizeRaw = lowerSize.charAt(0).toUpperCase() + lowerSize.slice(1);
+    } else {
+      sizeRaw = "Unknown";
+    }
+
+    // 3) TYPE CLEANUP (optional but nice)
+    let typeRaw = (d.type || "Unknown").toString().trim();
+    if (typeRaw !== "") {
+      const lowerType = typeRaw.toLowerCase();
+      typeRaw = lowerType.charAt(0).toUpperCase() + lowerType.slice(1);
+    } else {
+      typeRaw = "Unknown";
+    }
 
     const crNum = parseCR(d.cr);
     const hpNum = d.hp ? +d.hp : NaN;
@@ -101,9 +140,9 @@ d3.csv("monsters_ecology.csv").then((data) => {
 
     return {
       name: d.name,
-      type: d.type || "Unknown",
-      size: d.size || "Unknown",
-      environment: env || "Unknown",
+      type: typeRaw,
+      size: sizeRaw,
+      environment: environment,   // can be null if missing
       cr_raw: d.cr,
       cr_num: crNum,
       hp: hpNum,
@@ -121,7 +160,6 @@ d3.csv("monsters_ecology.csv").then((data) => {
   crMinData = crValues[0] ?? 0;
   crMaxData = crValues[crValues.length - 1] ?? 30;
 
-  // Set default CR range in inputs
   crMinInput.value = crMinData;
   crMaxInput.value = crMaxData;
   crRangeNote.textContent = `Data CR range: ${crMinData} to ${crMaxData}`;
@@ -134,6 +172,7 @@ d3.csv("monsters_ecology.csv").then((data) => {
     "then switch the metric between count, average CR, and % that can fly " +
     "to see how each grouping changes.";
 });
+
 
 // ------- Core update pipeline -------
 
@@ -154,6 +193,13 @@ function getFilteredData() {
 }
 
 function computeGroups(filtered, dimension, metric) {
+  // If grouping by environment, drop monsters with no environment label
+  if (dimension === "environment") {
+    filtered = filtered.filter(
+      (d) => d.environment && d.environment.trim() !== ""
+    );
+  }
+
   const keyFn = (d) => d[dimension] || "Unknown";
 
   const roll = d3.rollup(
@@ -171,13 +217,9 @@ function computeGroups(filtered, dimension, metric) {
         case "avgAC":
           return d3.mean(v, (d) => (isNaN(d.ac) ? null : d.ac));
         case "pctFly":
-          return (
-            (d3.mean(v, (d) => (d.hasFly ? 1 : 0)) || 0) * 100
-          );
+          return (d3.mean(v, (d) => (d.hasFly ? 1 : 0)) || 0) * 100;
         case "pctSwim":
-          return (
-            (d3.mean(v, (d) => (d.hasSwim ? 1 : 0)) || 0) * 100
-          );
+          return (d3.mean(v, (d) => (d.hasSwim ? 1 : 0)) || 0) * 100;
         default:
           return NaN;
       }
@@ -190,11 +232,10 @@ function computeGroups(filtered, dimension, metric) {
     value,
   })).filter((d) => d.value != null && !isNaN(d.value));
 
-  // Sort by value (desc), but keep key for display
   result.sort((a, b) => d3.descending(a.value, b.value));
-
   return result;
 }
+
 
 function updateCaption() {
   const dim = dimensionSelect.value;

@@ -162,6 +162,27 @@ section p {
   z-index: 10;
 }
 
+/* Axis and label styling for readability */
+
+#explorer-chart svg text {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+#explorer-chart .x-axis text,
+#explorer-chart .y-axis text {
+  fill: #e5e7ff;
+  font-size: 0.85rem;
+}
+
+#explorer-chart .axis-label {
+  fill: #f9fafb;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+
 /* Small screens */
 
 @media (max-width: 800px) {
