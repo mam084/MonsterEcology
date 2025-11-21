@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Monsters in Their Natural Habitat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- D3 v7 -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Monsters in Their Natural Habitat</h1>
+    <p>
+      This explorable article looks at how Dungeons &amp; Dragons creatures are
+      distributed across environments and how their traits reflect ecological
+      adaptation.
+    </p>
+    <p class="note">
+      Prototype milestone: charts and layout are still work in progress.
+    </p>
+  </header>
+
+  <main>
+    <!-- Section 1: Counts by environment -->
+    <section id="env-counts-section">
+      <h2>Where do monsters live?</h2>
+      <p>
+        Each bar shows how many monsters appear in a given environment.
+        Click a bar to highlight that biome and use it as a focus for later charts.
+      </p>
+      <div id="env-counts-chart" class="chart-container"></div>
+      <p id="env-selection-text" class="selection-text">
+        No environment selected yet.
+      </p>
+    </section>
+
+    <!-- Section 2: Average CR by environment -->
+    <section id="env-cr-section">
+      <h2>How dangerous is each biome?</h2>
+      <p>
+        This chart compares the average challenge rating (CR) of monsters in each
+        environment. It uses the same environment categories as above so patterns
+        are easy to compare.
+      </p>
+      <div id="env-cr-chart" class="chart-container"></div>
+    </section>
+
+    <!-- Section 3: Movement adaptations (placeholder for now) -->
+    <section id="movement-section">
+      <h2>How do monsters move through their worlds?</h2>
+      <p>
+        Coming soon: a grouped bar chart showing what share of monsters in each
+        biome can fly, swim, burrow, or climb. This will highlight how movement
+        traits change by environment.
+      </p>
+      <div class="chart-placeholder">
+        Prototype placeholder: movement adaptations by environment.
+      </div>
+    </section>
+
+    <!-- Section 4: Elemental defenses (placeholder) -->
+    <section id="damage-section">
+      <h2>Elemental defenses by environment</h2>
+      <p>
+        Coming soon: a heatmap showing how often monsters in each biome have
+        resistances or immunities to fire, cold, poison, and other damage types.
+      </p>
+      <div class="chart-placeholder">
+        Prototype placeholder: elemental / damage-type heatmap.
+      </div>
+    </section>
+
+    <!-- Section 5: Traits vs challenge rating (placeholder) -->
+    <section id="traits-section">
+      <h2>How traits scale with power</h2>
+      <p>
+        Coming soon: an interactive scatterplot that lets you switch between
+        hit points, strength, dexterity, and intelligence to see how they scale
+        with challenge rating across environments.
+      </p>
+      <div class="chart-placeholder">
+        Prototype placeholder: stats vs CR scatterplot.
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Data: Open5e monsters, cleaned into <code>monsters_ecology.csv</code>.
+      Prototype built with D3.js.
+    </p>
+  </footer>
+
+  <div id="tooltip" class="tooltip" style="opacity:0;"></div>
+
+  <script src="main.js"></script>
+</body>
+</html>
