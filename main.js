@@ -304,54 +304,66 @@ function updateExplorerChart() {
   explorerXAxisLabel.text(dimensionLabels[selectedDimension]);
   explorerYAxisLabel.text(metricLabels[metric]);
 
-  const bars = explorerBarsG.selectAll("rect").data(groups, d => d.key);
+  const bars = explorerBarsG
+    .selectAll("rect")
+    .data(groups, (d) => d.key);
 
-  bars
+  const barsEnter = bars
     .enter()
     .append("rect")
-    .attr("x", d => explorerXScale(d.key))
+    .attr("x", (d) => explorerXScale(d.key))
     .attr("width", explorerXScale.bandwidth())
     .attr("y", explorerInnerHeight)
     .attr("height", 0)
     .attr("rx", 4)
     .attr("ry", 4)
-    .style("cursor", "pointer")
+    .style("cursor", "pointer");
+
+  const barsAll = barsEnter.merge(bars);
+
+  // IMPORTANT: (re)attach hover + click handlers on the MERGED selection
+  barsAll
     .on("mouseenter", function (event, d) {
       d3.select(this).attr("opacity", 0.85);
+
       tooltip
         .style("opacity", 1)
         .html(
-          `<strong>${d.key}</strong><br>${metricLabels[metric]
-            .toLowerCase()
-            .replace("%", "percent")}: ${d.value.toFixed(1)}`
+          `<strong>${d.key}</strong><br>` +
+            `${metricLabels[selectedMetric]
+              .toLowerCase()
+              .replace("%", "percent")}: ${d.value.toFixed(1)}`
         )
         .style("left", event.pageX + 12 + "px")
-        .style("top",  event.pageY - 24 + "px");
+        .style("top", event.pageY - 24 + "px");
     })
-    .on("mousemove", event => {
+    .on("mousemove", function (event) {
       tooltip
         .style("left", event.pageX + 12 + "px")
-        .style("top",  event.pageY - 24 + "px");
+        .style("top", event.pageY - 24 + "px");
     })
     .on("mouseleave", function () {
       d3.select(this).attr("opacity", 1);
       tooltip.style("opacity", 0);
     })
-    .on("click", (event, d) => {
+    .on("click", function (event, d) {
+      // toggle selection & sync both charts
       selectedGroupKey = selectedGroupKey === d.key ? null : d.key;
       updateExplorerChart();
       updateStatsChart();
     })
-    .merge(bars)
     .transition()
     .duration(500)
-    .attr("x", d => explorerXScale(d.key))
+    .attr("x", (d) => explorerXScale(d.key))
     .attr("width", explorerXScale.bandwidth())
-    .attr("y", d => explorerYScale(d.value))
-    .attr("height", d => explorerInnerHeight - explorerYScale(d.value))
-    .attr("fill", d => (d.key === selectedGroupKey ? "#f97316" : "#6366f1"));
+    .attr("y", (d) => explorerYScale(d.value))
+    .attr("height", (d) => explorerInnerHeight - explorerYScale(d.value))
+    .attr("fill", (d) =>
+      d.key === selectedGroupKey ? "#f97316" : "#6366f1"
+    );
 
   bars.exit().remove();
+
 
   const total = getFilteredMonstersBase().length;
   explorerSummary.textContent = `Showing ${groups.length} ${
@@ -519,40 +531,48 @@ function updateStatsChart() {
   statsYAxisLabel.text(statCfg.label.toUpperCase());
 
   // NO key function: always rebind fully so we don't get stale HP tooltips
-  const points = statsPointsG.selectAll("circle").data(data);
+    const points = statsPointsG.selectAll("circle").data(data);
 
-  points
+  const pointsEnter = points
     .enter()
     .append("circle")
     .attr("r", 3)
     .attr("fill", "#f97316")
-    .attr("opacity", 0.7)
+    .attr("opacity", 0.7);
+
+  const pointsAll = pointsEnter.merge(points);
+
+  // IMPORTANT: (re)attach hover handlers on the MERGED selection
+  pointsAll
     .on("mouseenter", function (event, d) {
       d3.select(this).attr("opacity", 1).attr("r", 4);
+
       tooltip
         .style("opacity", 1)
         .html(
-          `<strong>${d.name}</strong><br>CR: ${d.cr}<br>${statCfg.label}: ${d[statField]}`
+          `<strong>${d.name}</strong><br>` +
+            `CR: ${d.cr}<br>` +
+            `${statCfg.label}: ${d[statField]}`
         )
         .style("left", event.pageX + 12 + "px")
-        .style("top",  event.pageY - 24 + "px");
+        .style("top", event.pageY - 24 + "px");
     })
-    .on("mousemove", event => {
+    .on("mousemove", function (event) {
       tooltip
         .style("left", event.pageX + 12 + "px")
-        .style("top",  event.pageY - 24 + "px");
+        .style("top", event.pageY - 24 + "px");
     })
     .on("mouseleave", function () {
       d3.select(this).attr("opacity", 0.7).attr("r", 3);
       tooltip.style("opacity", 0);
     })
-    .merge(points)
     .transition()
     .duration(400)
-    .attr("cx", d => statsXScale(d.cr))
-    .attr("cy", d => statsYScale(d[statField]));
+    .attr("cx", (d) => statsXScale(d.cr))
+    .attr("cy", (d) => statsYScale(d[statField]));
 
   points.exit().remove();
+
 
   // Trend + correlation
   const r = pearsonCorrelation(data, d => d.cr, d => d[statField]);
