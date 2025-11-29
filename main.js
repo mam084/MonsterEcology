@@ -18,66 +18,22 @@ function parseCR(value) {
   return isNaN(num) ? NaN : num;
 }
 
-// ------- String normalizers for grouping -------
-
-function titleCase(str) {
-  if (!str) return "Unknown";
-  const s = String(str).trim();
-  if (!s) return "Unknown";
-  return s[0].toUpperCase() + s.slice(1).toLowerCase();
-}
-
-// Environment: keep same structure as before by
-// - taking the first env in a comma-separated list
-// - trimming and title-casing it
-function normalizeEnvironment(raw) {
-  if (!raw) return "Unknown";
-  const first = String(raw)
-    .split(",")[0]
-    .split("/")[0]
-    .trim();
-  if (!first) return "Unknown";
-  return titleCase(first);
-}
-
-// Size: collapse SMALL/small/etc. -> Small
-function normalizeSize(raw) {
-  if (!raw) return "Unknown";
-  const s = String(raw).trim().toLowerCase();
-  const canonical = {
-    tiny: "Tiny",
-    small: "Small",
-    medium: "Medium",
-    large: "Large",
-    huge: "Huge",
-    gargantuan: "Gargantuan",
-  };
-  return canonical[s] || titleCase(s);
-}
-
-// Type: just title-case for consistency
-function normalizeType(raw) {
-  return titleCase(raw);
-}
-
-// Single place to ask "what group key does this monster belong to?"
-function getGroupKey(monster, dimension) {
-  if (dimension === "environment") return normalizeEnvironment(monster.environment);
-  if (dimension === "size") return normalizeSize(monster.size);
-  if (dimension === "type") return normalizeType(monster.type);
-  return "Unknown";
-}
-
 // ------- Global state -------
 
 let monsters = [];
-let globalCRMin = 0;
-let globalCRMax = 30;
+let crMinData = 0;
+let crMaxData = 30;
 
 let selectedDimension = "environment";
 let selectedMetric = "count";
-let selectedGroupKey = null; // current bar selection, or null
+let selectedGroupKey = null; // clicked bar, or null for "all"
 let selectedStatKey = "hp";
+
+const dimensionLabels = {
+  environment: "ENVIRONMENT",
+  type: "MONSTER TYPE",
+  size: "SIZE",
+};
 
 const metricLabels = {
   count: "NUMBER OF MONSTERS",
@@ -88,13 +44,6 @@ const metricLabels = {
   pctSwim: "% THAT CAN SWIM",
 };
 
-const dimensionLabels = {
-  environment: "ENVIRONMENT",
-  type: "MONSTER TYPE",
-  size: "SIZE",
-};
-
-// Stat dropdown configuration
 const statConfig = {
   hp: { field: "hp", label: "Hit Points" },
   str: { field: "str", label: "Strength" },
@@ -104,6 +53,8 @@ const statConfig = {
 
 // ------- DOM references -------
 
+const tooltip = d3.select("#tooltip");
+
 const dimensionSelect = document.getElementById("dimension-select");
 const metricSelect = document.getElementById("metric-select");
 const crMinInput = document.getElementById("cr-min");
@@ -111,18 +62,15 @@ const crMaxInput = document.getElementById("cr-max");
 const crRangeNote = document.getElementById("cr-range-note");
 const flyFilterCheckbox = document.getElementById("fly-filter");
 const swimFilterCheckbox = document.getElementById("swim-filter");
+const captionEl = document.getElementById("explorer-caption");
+const summaryEl = document.getElementById("explorer-summary");
 
-const explorerCaption = document.getElementById("explorer-caption");
-const explorerSummary = document.getElementById("explorer-summary");
-
+// Stats view controls (second chart)
 const statSelect = document.getElementById("stat-select");
 const statsGroupLabel = document.getElementById("stats-group-label");
 const statsCaption = document.getElementById("stats-caption");
 
-// Tooltip div
-const tooltip = d3.select("#tooltip");
-
-// ------- SVG setup vars -------
+// ------- SVG setup -------
 
 const explorerMargin = { top: 30, right: 20, bottom: 70, left: 70 };
 const statsMargin = { top: 30, right: 20, bottom: 60, left: 70 };
@@ -139,54 +87,97 @@ let statsPointsG, statsXAxisLabel, statsYAxisLabel, statsCorrelationLabel, stats
 let explorerXScale, explorerYScale;
 let statsXScale, statsYScale;
 
-// ------- Data loading and bootstrapping -------
+// ------- Data loading -------
 
-d3.csv("monsters_ecology.csv").then((raw) => {
-  monsters = raw
+d3.csv("monsters_ecology.csv").then((data) => {
+  monsters = data
     .map((d) => {
-      const cr = parseCR(d.cr);
-      const hp = +d.hp;
-      const ac = +d.ac;
-      const str = +d.str;
-      const dex = +d.dex;
-      const con = +d.con;
-      const intScore = +d.int; // keep raw under a different name
-      const wis = +d.wis;
-      const cha = +d.cha;
+      // 1) ENVIRONMENT CLEANUP – same logic as the original version
+      // Prefer environment; fall back to env_list if present
+      let envRaw = (d.environment || d.env_list || "").toString().trim();
 
-      const speedWalk = +d.speed_walk || 0;
-      const speedFly = +d.speed_fly || 0;
-      const speedSwim = +d.speed_swim || 0;
+      // If it's a comma-separated list like "Forest, Hill", take the first one
+      if (envRaw.includes(",")) {
+        envRaw = envRaw.split(",")[0].trim();
+      }
+
+      // Normalize case for environment labels, allow null if missing
+      let environment = null;
+      if (envRaw !== "") {
+        const lower = envRaw.toLowerCase();
+        environment = lower.charAt(0).toUpperCase() + lower.slice(1);
+      }
+
+      // 2) SIZE CLEANUP – fix Tiny vs tiny, Large vs large, etc.
+      let sizeRaw = (d.size || "Unknown").toString().trim();
+      if (sizeRaw !== "") {
+        const lowerSize = sizeRaw.toLowerCase();
+        sizeRaw = lowerSize.charAt(0).toUpperCase() + lowerSize.slice(1);
+      } else {
+        sizeRaw = "Unknown";
+      }
+
+      // 3) TYPE CLEANUP
+      let typeRaw = (d.type || "Unknown").toString().trim();
+      if (typeRaw !== "") {
+        const lowerType = typeRaw.toLowerCase();
+        typeRaw = lowerType.charAt(0).toUpperCase() + lowerType.slice(1);
+      } else {
+        typeRaw = "Unknown";
+      }
+
+      const crNum = parseCR(d.cr);
+      const hpNum = d.hp ? +d.hp : NaN;
+      const acNum = d.ac ? +d.ac : NaN;
+
+      const str = d.str ? +d.str : NaN;
+      const dex = d.dex ? +d.dex : NaN;
+      const con = d.con ? +d.con : NaN;
+      const intScore = d.int ? +d.int : NaN;
+      const wis = d.wis ? +d.wis : NaN;
+      const cha = d.cha ? +d.cha : NaN;
+
+      const flySpeed = d.speed_fly ? +d.speed_fly : 0;
+      const swimSpeed = d.speed_swim ? +d.speed_swim : 0;
 
       return {
-        ...d,
-        cr,
-        hp,
-        ac,
+        name: d.name,
+        type: typeRaw,
+        size: sizeRaw,
+        environment: environment, // can be null if missing
+        cr_raw: d.cr,
+        cr: crNum,
+        hp: hpNum,
+        ac: acNum,
         str,
         dex,
         con,
-        intScore, // avoid collision with JS 'int' expectations
+        intScore,
         wis,
         cha,
-        speed_walk: speedWalk,
-        speed_fly: speedFly,
-        speed_swim: speedSwim,
-        canFly: speedFly > 0,
-        canSwim: speedSwim > 0,
+        hasFly: flySpeed > 0,
+        hasSwim: swimSpeed > 0,
       };
     })
     .filter((d) => !isNaN(d.cr));
 
-  globalCRMin = d3.min(monsters, (d) => d.cr);
-  globalCRMax = d3.max(monsters, (d) => d.cr);
+  const crValues = monsters
+    .map((d) => d.cr)
+    .filter((x) => !isNaN(x))
+    .sort((a, b) => a - b);
 
-  crMinInput.value = globalCRMin;
-  crMaxInput.value = globalCRMax;
-  crRangeNote.textContent = `Available CR: ${globalCRMin} to ${globalCRMax}`;
+  crMinData = crValues[0] ?? 0;
+  crMaxData = crValues[crValues.length - 1] ?? 30;
+
+  crMinInput.value = crMinData;
+  crMaxInput.value = crMaxData;
+  crRangeNote.textContent = `Data CR range: ${crMinData} to ${crMaxData}`;
+
+  selectedStatKey = statSelect ? statSelect.value : "hp";
 
   initExplorerChart();
   initStatsChart();
+  updateCaption();
   updateAll();
 });
 
@@ -196,8 +187,9 @@ function getCurrentCRRange() {
   let min = parseFloat(crMinInput.value);
   let max = parseFloat(crMaxInput.value);
 
-  if (isNaN(min)) min = globalCRMin;
-  if (isNaN(max)) max = globalCRMax;
+  if (isNaN(min)) min = crMinData;
+  if (isNaN(max)) max = crMaxData;
+
   if (min > max) {
     const tmp = min;
     min = max;
@@ -212,47 +204,76 @@ function getFilteredMonstersBase() {
   const onlySwim = swimFilterCheckbox.checked;
 
   return monsters.filter((d) => {
+    if (isNaN(d.cr)) return false;
     if (d.cr < minCR || d.cr > maxCR) return false;
-    if (onlyFly && !d.canFly) return false;
-    if (onlySwim && !d.canSwim) return false;
+    if (onlyFly && !d.hasFly) return false;
+    if (onlySwim && !d.hasSwim) return false;
     return true;
   });
+}
+
+// group key used for both bar chart and stats selection
+function getGroupKeyForMonster(d) {
+  if (selectedDimension === "environment") return d.environment;
+  if (selectedDimension === "size") return d.size || "Unknown";
+  if (selectedDimension === "type") return d.type || "Unknown";
+  return "Unknown";
 }
 
 function getGroupedData() {
   const base = getFilteredMonstersBase();
 
-  const rollups = d3.rollups(
-    base,
+  let filtered = base;
+
+  // For environments, drop monsters that truly have no environment
+  if (selectedDimension === "environment") {
+    filtered = filtered.filter((d) => d.environment && d.environment.trim() !== "");
+  }
+
+  const metric = selectedMetric;
+
+  const roll = d3.rollups(
+    filtered,
     (v) => {
-      const count = v.length;
-      const avgCR = d3.mean(v, (d) => d.cr);
-      const avgHP = d3.mean(v, (d) => d.hp);
-      const avgAC = d3.mean(v, (d) => d.ac);
-      const pctFly = 100 * d3.mean(v, (d) => (d.canFly ? 1 : 0));
-      const pctSwim = 100 * d3.mean(v, (d) => (d.canSwim ? 1 : 0));
-      return { count, avgCR, avgHP, avgAC, pctFly, pctSwim };
+      if (v.length === 0) return null;
+
+      switch (metric) {
+        case "count":
+          return v.length;
+        case "avgCR":
+          return d3.mean(v, (d) => d.cr);
+        case "avgHP":
+          return d3.mean(v, (d) => (isNaN(d.hp) ? null : d.hp));
+        case "avgAC":
+          return d3.mean(v, (d) => (isNaN(d.ac) ? null : d.ac));
+        case "pctFly":
+          return (d3.mean(v, (d) => (d.hasFly ? 1 : 0)) || 0) * 100;
+        case "pctSwim":
+          return (d3.mean(v, (d) => (d.hasSwim ? 1 : 0)) || 0) * 100;
+        default:
+          return null;
+      }
     },
-    (d) => getGroupKey(d, selectedDimension)
+    (d) => getGroupKeyForMonster(d)
   );
 
-  const metricKey = selectedMetric;
+  let groups = Array.from(roll, ([key, value]) => ({
+    key,
+    value,
+  })).filter((d) => d.value != null && !isNaN(d.value));
 
-  const groups = rollups
-    .map(([key, stats]) => ({
-      key,
-      ...stats,
-      value: stats[metricKey],
-    }))
-    .filter((d) => !isNaN(d.value));
+  // For environments, drop any "Unknown" bucket entirely
+  if (selectedDimension === "environment") {
+    groups = groups.filter((d) => d.key && d.key !== "Unknown");
+  }
 
-  // For environments/types there can be lots; keep top N
-  const topN = selectedDimension === "size" ? 12 : 18;
+  // Sort and trim
   groups.sort((a, b) => d3.descending(a.value, b.value));
+  const topN = selectedDimension === "size" ? groups.length : 18;
   return groups.slice(0, topN);
 }
 
-// ------- Explorer chart (bar) setup & update -------
+// ------- Explorer chart (bar) -------
 
 function initExplorerChart() {
   const container = document.getElementById("explorer-chart");
@@ -285,8 +306,7 @@ function initExplorerChart() {
     .attr(
       "transform",
       `translate(${explorerInnerWidth / 2}, ${explorerInnerHeight + 48})`
-    )
-    .text("ENVIRONMENT");
+    );
 
   explorerYAxisLabel = explorerG
     .append("text")
@@ -295,15 +315,14 @@ function initExplorerChart() {
     .attr(
       "transform",
       `translate(${-48}, ${explorerInnerHeight / 2}) rotate(-90)`
-    )
-    .text("NUMBER OF MONSTERS");
+    );
 
   explorerBarsG = explorerG.append("g").attr("class", "bars");
 }
 
 function updateExplorerChart() {
   const groups = getGroupedData();
-  const metricKey = selectedMetric;
+  const metric = selectedMetric;
 
   explorerXScale = d3
     .scaleBand()
@@ -311,7 +330,7 @@ function updateExplorerChart() {
     .range([0, explorerInnerWidth])
     .padding(0.12);
 
-  const maxY = d3.max(groups, (d) => d[metricKey]) || 1;
+  const maxY = d3.max(groups, (d) => d.value) || 1;
 
   explorerYScale = d3
     .scaleLinear()
@@ -326,7 +345,7 @@ function updateExplorerChart() {
   explorerYAxisG.call(yAxis);
 
   explorerXAxisLabel.text(dimensionLabels[selectedDimension]);
-  explorerYAxisLabel.text(metricLabels[selectedMetric]);
+  explorerYAxisLabel.text(metricLabels[metric]);
 
   const bars = explorerBarsG.selectAll("rect").data(groups, (d) => d.key);
 
@@ -346,9 +365,9 @@ function updateExplorerChart() {
       tooltip
         .style("opacity", 1)
         .html(
-          `<strong>${d.key}</strong><br>${metricLabels[selectedMetric]
+          `<strong>${d.key}</strong><br>${metricLabels[metric]
             .toLowerCase()
-            .replace("%", "percent")}: ${d[metricKey].toFixed(1)}`
+            .replace("%", "percent")}: ${d.value.toFixed(1)}`
         )
         .style("left", event.pageX + 12 + "px")
         .style("top", event.pageY - 24 + "px");
@@ -363,30 +382,33 @@ function updateExplorerChart() {
       tooltip.style("opacity", 0);
     })
     .on("click", function (event, d) {
+      // Toggle selection
       selectedGroupKey = selectedGroupKey === d.key ? null : d.key;
       updateExplorerChart(); // recolor bars
-      updateStatsChart(); // re-filter scatter to match
+      updateStatsChart(); // sync scatterplot
     })
     .merge(bars)
     .transition()
     .duration(500)
     .attr("x", (d) => explorerXScale(d.key))
     .attr("width", explorerXScale.bandwidth())
-    .attr("y", (d) => explorerYScale(d[metricKey]))
-    .attr("height", (d) => explorerInnerHeight - explorerYScale(d[metricKey]))
+    .attr("y", (d) => explorerYScale(d.value))
+    .attr("height", (d) => explorerInnerHeight - explorerYScale(d.value))
     .attr("fill", (d) => (d.key === selectedGroupKey ? "#f97316" : "#6366f1"));
 
   bars.exit().remove();
 
   const totalMonsters = getFilteredMonstersBase().length;
-  explorerSummary.textContent = `Showing ${groups.length} ${dimensionLabels[
-    selectedDimension
-  ].toLowerCase()} groups (${totalMonsters} monsters after filters).`;
+  summaryEl.textContent = `Showing ${groups.length} ${
+    dimensionLabels[selectedDimension].toLowerCase()
+  } groups (${totalMonsters} monsters after filters).`;
 }
 
-// ------- Stats scatterplot setup & update -------
+// ------- Stats scatterplot -------
 
 function initStatsChart() {
+  if (!document.getElementById("stats-chart")) return; // safety
+
   const container = document.getElementById("stats-chart");
   statsWidth = container.clientWidth || 900;
   statsHeight = 420;
@@ -447,7 +469,6 @@ function initStatsChart() {
   statsPointsG = statsG.append("g").attr("class", "points");
 }
 
-// Pearson r
 function pearsonCorrelation(data, xAccessor, yAccessor) {
   const n = data.length;
   if (n < 2) return NaN;
@@ -475,7 +496,6 @@ function pearsonCorrelation(data, xAccessor, yAccessor) {
   return numerator / denom;
 }
 
-// Simple linear regression y = a + bx
 function linearRegression(data, xAccessor, yAccessor) {
   const n = data.length;
   if (n < 2) return { slope: 0, intercept: 0, valid: false };
@@ -503,48 +523,51 @@ function linearRegression(data, xAccessor, yAccessor) {
 }
 
 function updateStatsChart() {
-  const statCfg = statConfig[selectedStatKey];
+  if (!statsPointsG) return; // stats view not on this page
+
+  const statCfg = statConfig[selectedStatKey] || statConfig.hp;
   const statField = statCfg.field;
 
-  // Start with same base filters
   const base = getFilteredMonstersBase();
-
-  // If a bar is selected, limit to that group using the SAME group key logic
   let data = base;
+
   if (selectedGroupKey != null) {
     data = base.filter(
-      (d) => getGroupKey(d, selectedDimension) === selectedGroupKey
+      (d) => getGroupKeyForMonster(d) === selectedGroupKey
     );
   }
 
-  // Make sure stat field exists for this stat and CR/field are numeric
-  data = data.filter(
-    (d) => !isNaN(d.cr) && !isNaN(d[statField])
-  );
+  // make sure CR + stat field are valid
+  data = data.filter((d) => !isNaN(d.cr) && !isNaN(d[statField]));
 
   const groupLabel =
     selectedGroupKey == null
       ? "All monsters (filtered)"
       : `${selectedGroupKey} (${dimensionLabels[selectedDimension].toLowerCase()})`;
 
-  statsGroupLabel.textContent = groupLabel;
+  if (statsGroupLabel) {
+    statsGroupLabel.textContent = groupLabel;
+  }
 
   if (data.length === 0) {
     statsPointsG.selectAll("circle").remove();
     statsTrendLine.attr("opacity", 0);
     statsCorrelationLabel.text("No monsters in this selection.");
     statsYAxisLabel.text(statCfg.label.toUpperCase());
-    statsCaption.textContent =
-      "No data after filters and selection. Try expanding the CR range or clearing the bar selection.";
+    if (statsCaption) {
+      statsCaption.textContent =
+        "No data after filters and selection. Try expanding the CR range or clearing the bar selection.";
+    }
     return;
   }
 
-  const maxCR = d3.max(data, (d) => d.cr);
+  const [minCR, maxCR] = getCurrentCRRange();
   const maxStat = d3.max(data, (d) => d[statField]);
 
+  // X axis now matches the current CR window
   statsXScale = d3
     .scaleLinear()
-    .domain([0, Math.max(globalCRMax, maxCR)])
+    .domain([minCR, maxCR])
     .nice()
     .range([0, statsInnerWidth]);
 
@@ -562,25 +585,17 @@ function updateStatsChart() {
 
   statsYAxisLabel.text(statCfg.label.toUpperCase());
 
-  // Points — key includes statField name so switching stats forces update
-  const points = statsPointsG
-    .selectAll("circle")
-    .data(
-      data,
-      (d) => d.name + "|" + d.cr + "|" + statField + "|" + d[statField]
-    );
+  // Points: intentionally NO key function so they fully rebind on stat change
+  const points = statsPointsG.selectAll("circle").data(data);
 
   points
     .enter()
     .append("circle")
-    .attr("cx", (d) => statsXScale(d.cr))
-    .attr("cy", (d) => statsYScale(d[statField]))
     .attr("r", 3)
     .attr("fill", "#f97316")
     .attr("opacity", 0.7)
     .on("mouseenter", function (event, d) {
       d3.select(this).attr("opacity", 1).attr("r", 4);
-
       tooltip
         .style("opacity", 1)
         .html(
@@ -608,7 +623,7 @@ function updateStatsChart() {
 
   points.exit().remove();
 
-  // Trend + correlation, always using the currently selected stat
+  // Trend + correlation
   const r = pearsonCorrelation(data, (d) => d.cr, (d) => d[statField]);
   const { slope, intercept, valid } = linearRegression(
     data,
@@ -617,8 +632,8 @@ function updateStatsChart() {
   );
 
   if (valid) {
-    const x0 = 0;
-    const x1 = Math.max(globalCRMax, maxCR);
+    const x0 = minCR;
+    const x1 = maxCR;
     const y0 = slope * x0 + intercept;
     const y1 = slope * x1 + intercept;
 
@@ -635,12 +650,28 @@ function updateStatsChart() {
   const rText = isNaN(r) ? "r: n/a" : `r = ${r.toFixed(2)}`;
   statsCorrelationLabel.text(rText);
 
-  statsCaption.textContent = `Each point is a monster in ${groupLabel}. The line shows a simple linear fit of ${
-    statCfg.label
-  } vs CR (${rText}).`;
+  if (statsCaption) {
+    statsCaption.textContent = `Each point is a monster in ${groupLabel}. The line shows a simple linear fit of ${
+      statCfg.label
+    } vs CR (${rText}).`;
+  }
 }
 
-// ------- Update both views together -------
+// ------- Caption & global update -------
+
+function updateCaption() {
+  const dim = selectedDimension;
+  const metric = selectedMetric;
+
+  const dimLabel = dimensionLabels[dim] || "group";
+  const metricLabel = metricLabels[metric] || "value";
+
+  captionEl.innerHTML =
+    `Each bar shows the <strong>${metricLabel.toLowerCase()}</strong> ` +
+    `for each <strong>${dimLabel}</strong>, ` +
+    `after applying the CR range and movement filters above. ` +
+    `Change the dropdowns to pivot between different groupings and metrics.`;
+}
 
 function updateAll() {
   updateExplorerChart();
@@ -651,21 +682,38 @@ function updateAll() {
 
 dimensionSelect.addEventListener("change", () => {
   selectedDimension = dimensionSelect.value;
-  selectedGroupKey = null; // clear selection when dimension changes
+  selectedGroupKey = null; // changing grouping resets selection
+  updateCaption();
   updateAll();
 });
 
 metricSelect.addEventListener("change", () => {
   selectedMetric = metricSelect.value;
+  updateCaption();
   updateExplorerChart();
-});
-
-crMinInput.addEventListener("change", updateAll);
-crMaxInput.addEventListener("change", updateAll);
-flyFilterCheckbox.addEventListener("change", updateAll);
-swimFilterCheckbox.addEventListener("change", updateAll);
-
-statSelect.addEventListener("change", () => {
-  selectedStatKey = statSelect.value;
+  // stats chart uses same filters, not metric
   updateStatsChart();
 });
+
+crMinInput.addEventListener("change", () => {
+  updateAll();
+});
+
+crMaxInput.addEventListener("change", () => {
+  updateAll();
+});
+
+flyFilterCheckbox.addEventListener("change", () => {
+  updateAll();
+});
+
+swimFilterCheckbox.addEventListener("change", () => {
+  updateAll();
+});
+
+if (statSelect) {
+  statSelect.addEventListener("change", () => {
+    selectedStatKey = statSelect.value;
+    updateStatsChart();
+  });
+}
