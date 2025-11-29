@@ -85,18 +85,41 @@
       </p>
     </section>
 
-    <!-- Optional: placeholder for a second view you might build later -->
-    <section id="future-section">
-      <h2>Coming next: traits vs challenge rating</h2>
+    <!-- Linked stats vs CR scatterplot -->
+    <section id="stats-section">
+      <h2>Stats vs challenge rating</h2>
       <p>
-        In the final version, this section will add a linked scatterplot showing
-        how hit points, armor class, and ability scores scale with CR. It will
-        respond to the same CR sliders and movement filters as the main chart.
+        This view shows how monster stats scale with challenge rating. It uses
+        the same CR range and movement filters as the bar chart above. Clicking
+        a bar focuses the scatterplot on that group.
       </p>
-      <div class="chart-placeholder">
-        Prototype placeholder: stats vs CR scatterplot.
+
+      <div class="controls-panel stats-controls">
+        <div class="control-group">
+          <label for="stat-select">Stat</label>
+          <select id="stat-select">
+            <option value="hp">Hit points</option>
+            <option value="str">Strength</option>
+            <option value="dex">Dexterity</option>
+            <option value="int">Intelligence</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label>Current selection</label>
+          <div id="stats-group-label" class="group-pill">
+            All monsters (filtered)
+          </div>
+        </div>
       </div>
+
+      <div id="stats-chart" class="chart-container"></div>
+      <p id="stats-caption" class="caption">
+        Each point is a monster. The line shows a simple best-fit trend for the
+        chosen stat vs CR.
+      </p>
     </section>
+
   </main>
 
   <footer>
