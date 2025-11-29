@@ -124,6 +124,43 @@
       </p>
     </section>
 
+          <!-- Damage defenses vs ecology heatmap -->
+    <section id="defense-section">
+      <h2>Damage defenses by environment, type, or size</h2>
+      <p>
+        This heatmap shows how common different damage defenses are across
+        monster groups. Use the CR range and movement filters above, then
+        choose a defense type and grouping to see where certain resistances
+        or immunities cluster.
+      </p>
+
+      <div class="controls-panel stats-controls">
+        <div class="control-group">
+          <label for="defense-kind-select">Defense kind</label>
+          <select id="defense-kind-select">
+            <option value="resist">Resistances</option>
+            <option value="immune">Immunities</option>
+            <option value="vuln">Vulnerabilities</option>
+          </select>
+        </div>
+
+        <div class="control-group">
+          <label for="defense-group-select">Group by</label>
+          <select id="defense-group-select">
+            <option value="environment">Environment</option>
+            <option value="type">Monster type</option>
+            <option value="size">Size</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="defense-heatmap" class="chart-container"></div>
+      <p id="defense-heatmap-caption" class="caption">
+        Each cell shows the percentage of monsters in a group that have the
+        chosen kind of damage defense against a given damage type.
+      </p>
+    </section>
+
   </main>
 
   <footer>
