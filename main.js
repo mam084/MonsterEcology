@@ -53,10 +53,15 @@ const metricLabels = {
 
 const statConfig = {
   hp:  { field: "hp",       label: "Hit Points"   },
+  ac:  { field: "ac",       label: "Armor Class"  },
   str: { field: "str",      label: "Strength"     },
   dex: { field: "dex",      label: "Dexterity"    },
-  int: { field: "intScore", label: "Intelligence" }
+  con: { field: "con",      label: "Constitution" },
+  int: { field: "intScore", label: "Intelligence" },
+  wis: { field: "wis",      label: "Wisdom"       },
+  cha: { field: "cha",      label: "Charisma"     }
 };
+
 
 // map dimension -> precomputed field name on each monster
 const dimField = {
