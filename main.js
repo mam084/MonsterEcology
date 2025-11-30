@@ -9,13 +9,14 @@ function parseCR(value) {
     const [n, d] = s.split("/");
     const num = parseFloat(n);
     const den = parseFloat(d);
-    if (!isNaN(num) && !isNaNaN(den) && den !== 0) return num / den;
+    if (!isNaN(num) && !isNaN(den) && den !== 0) return num / den;
   }
 
   const cleaned = s.replace("+", "");
   const num = parseFloat(cleaned);
   return isNaN(num) ? NaN : num;
 }
+
 
 function capFirst(str) {
   if (!str) return "";
