@@ -907,9 +907,9 @@ function updateDefenseHeatmap() {
         .style("opacity", 1)
         .html(
           `<strong>${d.group}</strong><br>` +
-            `${d.percent.toFixed(1)}% of monsters ` +
-            `(${d.count}/${d.total}) have ${kindLabel} to <strong>${d.damageType}</strong>.`
+          `${d.percent.toFixed(1)}% of monsters have ${kindLabel} to <strong>${d.damageType}</strong>.`
         )
+
         .style("left", event.pageX + 12 + "px")
         .style("top", event.pageY - 24 + "px");
     })
