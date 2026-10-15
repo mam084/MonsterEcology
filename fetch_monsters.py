@@ -4,8 +4,6 @@ import re
 
 BASE_URL = "https://api.open5e.com/monsters/"
 
-import re
-
 def parse_speed(speed_data):
     """
     Handles both dict and string speed formats and is tolerant of weird input.

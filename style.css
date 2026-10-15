@@ -32,7 +32,7 @@ header .note {
   color: #b5b8e0;
 }
 
-main {
+main, footer {
   padding: 1.25rem 8vw 3rem;
 }
 
@@ -175,7 +175,8 @@ section p {
   font-size: 0.85rem;
 }
 
-#explorer-chart .axis-label {
+#explorer-chart .axis-label,
+#defense-heatmap .axis-label {
   fill: #f9fafb;
   font-size: 0.9rem;
   font-weight: 600;
