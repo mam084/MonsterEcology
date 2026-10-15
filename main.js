@@ -25,6 +25,44 @@ function capFirst(str) {
   return s[0].toUpperCase() + s.slice(1).toLowerCase();
 }
 
+// Environment names in the source data are inconsistent ("Hill" vs "Hills",
+// "Plane Of Fire"); fold them into one spelling each.
+const ENV_SYNONYMS = {
+  hills: "Hill",
+  mountain: "Mountains",
+  ruins: "Ruin",
+  caves: "Caverns",
+  ocean: "Water",
+  lake: "Water",
+  ice: "Arctic"
+};
+
+function normalizeEnv(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  const lower = s.toLowerCase();
+  if (ENV_SYNONYMS[lower]) return ENV_SYNONYMS[lower];
+  return lower
+    .split(/\s+/)
+    .map((w, i) => (i > 0 && w === "of" ? w : w[0].toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
+// A monster can live in several environments, so environment grouping
+// returns every one of them; type and size have exactly one value.
+function groupKeysFor(monster, dimension) {
+  if (dimension === "environment") return monster.envList;
+  const key = monster[dimField[dimension]];
+  return key == null ? [] : [key];
+}
+
+// [{key, monster}] pairs, one per group a monster belongs to.
+function expandByGroup(monsters, dimension) {
+  const pairs = [];
+  for (const m of monsters) for (const key of groupKeysFor(m, dimension)) pairs.push({ key, monster: m });
+  return pairs;
+}
+
 // canonical damage type parsing for resistances / immunities / vulnerabilities
 const CANONICAL_DAMAGE_TYPES = [
   "Acid",
@@ -151,9 +189,9 @@ const defenseHeatmapCaption = document.getElementById("defense-heatmap-caption")
 
 // ----------------- SVG layout -----------------
 
-const explorerMargin = { top: 30, right: 20, bottom: 70, left: 70 };
+const explorerMargin = { top: 30, right: 20, bottom: 100, left: 70 };
 const statsMargin = { top: 30, right: 20, bottom: 60, left: 70 };
-const defenseMargin = { top: 30, right: 20, bottom: 80, left: 90 };
+const defenseMargin = { top: 30, right: 20, bottom: 80, left: 120 };
 
 let explorerWidth, explorerHeight, explorerInnerWidth, explorerInnerHeight;
 let statsWidth, statsHeight, statsInnerWidth, statsInnerHeight;
@@ -174,9 +212,11 @@ d3.csv("monsters_ecology.csv").then((raw) => {
   monsters = raw
     .map((row) => {
       // environment / type / size normalization
-      let env = (row.environment || row.env_list || "").toString().trim();
-      if (env.includes(",")) env = env.split(",")[0].trim();
-      env = env === "" ? null : capFirst(env);
+      // Keep every listed environment (previously only the first was kept,
+      // so e.g. most Forest monsters were counted under another environment).
+      const envList = Array.from(new Set(
+        (row.environment || "").toString().split(",").map(normalizeEnv).filter(Boolean)
+      ));
 
       let size = capFirst(row.size || "Unknown");
       let type = capFirst(row.type || "Unknown");
@@ -220,7 +260,8 @@ d3.csv("monsters_ecology.csv").then((raw) => {
         speed_climb: climb,
         hasFly: fly > 0,
         hasSwim: swim > 0,
-        envGroup: env,
+        envList,
+        envGroup: envList.length ? envList[0] : null,
         typeGroup: type,
         sizeGroup: size,
         resistTypes,
@@ -277,17 +318,14 @@ function getFilteredMonstersBase() {
 
 function getGroupedData() {
   const base = getFilteredMonstersBase();
-  const field = dimField[selectedDimension];
   const metric = selectedMetric;
 
-  const filtered =
-    selectedDimension === "environment"
-      ? base.filter((d) => d.envGroup !== null)
-      : base;
+  const pairs = expandByGroup(base, selectedDimension);
 
   const rollups = d3.rollups(
-    filtered,
-    (v) => {
+    pairs,
+    (pv) => {
+      const v = pv.map((p) => p.monster);
       if (!v.length) return null;
       switch (metric) {
         case "count":
@@ -306,7 +344,7 @@ function getGroupedData() {
           return null;
       }
     },
-    (d) => d[field]
+    (p) => p.key
   );
 
   let groups = rollups
@@ -358,7 +396,7 @@ function initExplorerChart() {
     .attr(
       "transform",
       `translate(${explorerInnerWidth / 2}, ${
-        explorerInnerHeight + 48
+        explorerInnerHeight + 82
       })`
     );
 
@@ -396,6 +434,13 @@ function updateExplorerChart() {
   explorerYScale = yScale;
 
   explorerXAxisG.call(d3.axisBottom(xScale));
+  // Angle labels when there are many groups so they don't overlap.
+  const angled = groups.length > 8;
+  explorerXAxisG.selectAll("text")
+    .attr("transform", angled ? "rotate(-35)" : null)
+    .style("text-anchor", angled ? "end" : "middle")
+    .attr("dx", angled ? "-0.4em" : null)
+    .attr("dy", angled ? "0.6em" : "0.71em");
   explorerYAxisG.call(d3.axisLeft(yScale).ticks(6));
 
   explorerXAxisLabel.text(dimensionLabels[selectedDimension]);
@@ -458,10 +503,19 @@ function updateExplorerChart() {
 
   bars.exit().remove();
 
-  const total = getFilteredMonstersBase().length;
-  explorerSummary.textContent = `Showing ${groups.length} ${
-    dimensionLabels[selectedDimension].toLowerCase()
-  } groups (${total} monsters after filters).`;
+  const base = getFilteredMonstersBase();
+  const total = base.length;
+  if (selectedDimension === "environment") {
+    const withEnv = base.filter((d) => d.envList.length).length;
+    explorerSummary.textContent =
+      `Showing the top ${groups.length} environments. ${withEnv} of ${total} monsters ` +
+      `(after filters) list an environment; a monster that lives in several environments ` +
+      `is counted in each.`;
+  } else {
+    explorerSummary.textContent = `Showing ${groups.length} ${
+      dimensionLabels[selectedDimension].toLowerCase()
+    } groups (${total} monsters after filters).`;
+  }
 }
 
 // ----------------- Stats vs CR scatterplot -----------------
@@ -601,7 +655,7 @@ function updateStatsChart() {
 
   let data = base;
   if (selectedGroupKey != null) {
-    data = base.filter((d) => d[field] === selectedGroupKey);
+    data = base.filter((d) => groupKeysFor(d, selectedDimension).includes(selectedGroupKey));
   }
 
   data = data.filter(
@@ -734,7 +788,7 @@ function initDefenseHeatmap() {
   if (!container) return;
 
   defenseWidth = container.clientWidth || 900;
-  defenseHeight = 420;
+  defenseHeight = 640;
 
   defenseInnerWidth =
     defenseWidth - defenseMargin.left - defenseMargin.right;
@@ -772,7 +826,7 @@ function initDefenseHeatmap() {
     .attr(
       "transform",
       `translate(${defenseInnerWidth / 2}, ${
-        defenseInnerHeight + 48
+        defenseInnerHeight + 62
       })`
     )
     .text("DAMAGE TYPE");
@@ -783,7 +837,7 @@ function initDefenseHeatmap() {
     .attr("text-anchor", "middle")
     .attr(
       "transform",
-      `translate(${-70}, ${
+      `translate(${-100}, ${
         defenseInnerHeight / 2
       }) rotate(-90)`
     )
@@ -802,9 +856,9 @@ function updateDefenseHeatmap() {
   if (!defenseG) return;
 
   const base = getFilteredMonstersBase();
-  const field = dimField[defenseGroupDimension];
 
-  let data = base.filter((d) => d[field] != null);
+  const pairs = expandByGroup(base, defenseGroupDimension);
+  const data = pairs.map((p) => p.monster);
 
   if (!data.length) {
     defenseG.selectAll("rect").remove();
@@ -834,7 +888,8 @@ function updateDefenseHeatmap() {
   }
 
   const groups = d3
-    .groups(data, (d) => d[field])
+    .groups(pairs, (p) => p.key)
+    .map(([key, ps]) => [key, ps.map((p) => p.monster)])
     .sort(([a], [b]) => d3.ascending(a, b));
 
   const cells = [];
@@ -937,8 +992,8 @@ function updateDefenseHeatmap() {
       dimensionLabels[defenseGroupDimension].toLowerCase();
     const kindLabel = defenseKindLabels[defenseKind];
     defenseHeatmapCaption.textContent =
-      `Each cell shows the percentage of ${dimLabel} whose monsters ` +
-      `have ${kindLabel} to a given damage type (after CR and movement filters).`;
+      `Each cell shows the percentage of monsters in that ${dimLabel} group ` +
+      `with ${kindLabel} to a given damage type (after CR and movement filters).`;
   }
 }
 

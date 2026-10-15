@@ -1,8 +1,32 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 plt.style.use("ggplot")
+
+FIG_DIR = Path("figures")
+FIG_DIR.mkdir(exist_ok=True)
+
+# Fold inconsistent environment spellings into one name each
+# (matches normalizeEnv in main.js).
+ENV_SYNONYMS = {
+    "hills": "Hill",
+    "mountain": "Mountains",
+    "ruins": "Ruin",
+    "caves": "Caverns",
+    "ocean": "Water",
+    "lake": "Water",
+    "ice": "Arctic",
+}
+
+
+def normalize_env(name):
+    s = name.strip()
+    low = s.lower()
+    if low in ENV_SYNONYMS:
+        return ENV_SYNONYMS[low]
+    return " ".join(w if (i > 0 and w == "of") else w.capitalize() for i, w in enumerate(low.split()))
 
 # ---------- Helper: parse CR like "1/4" -> 0.25 ----------
 
@@ -36,7 +60,7 @@ def main():
 
     # Split comma-separated environments into list
     df["env_list"] = df["environment"].apply(
-        lambda s: [e.strip() for e in s.split(",") if e.strip()] if isinstance(s, str) else []
+        lambda s: sorted({normalize_env(e) for e in s.split(",") if e.strip()}) if isinstance(s, str) else []
     )
     print("CSV Columns:")
     print(df.columns.tolist())
@@ -97,9 +121,9 @@ def main():
     plt.xlabel("Environment")
     plt.title("Monster Counts by Environment")
     plt.tight_layout()
-    plt.savefig("fig1_monster_counts_by_environment.png", dpi=150)
+    plt.savefig(FIG_DIR / "fig1_monster_counts_by_environment.png", dpi=150)
     plt.close()
-    print("Saved fig1_monster_counts_by_environment.png")
+    print("Saved figures/fig1_monster_counts_by_environment.png")
 
     # ---------- FIGURE 2: Average CR by Environment ----------
 
@@ -115,9 +139,9 @@ def main():
     plt.xlabel("Environment")
     plt.title("Average Monster Challenge Rating by Environment")
     plt.tight_layout()
-    plt.savefig("fig2_avg_cr_by_environment.png", dpi=150)
+    plt.savefig(FIG_DIR / "fig2_avg_cr_by_environment.png", dpi=150)
     plt.close()
-    print("Saved fig2_avg_cr_by_environment.png")
+    print("Saved figures/fig2_avg_cr_by_environment.png")
 
         # ---------- FIGURE 3: Movement Adaptations (Grouped Bar) ----------
     # % of monsters in each environment that can Fly / Swim / Burrow / Climb
@@ -169,9 +193,9 @@ def main():
         plt.title("Movement Adaptations by Environment")
         plt.legend(title="Movement Type")
         plt.tight_layout()
-        plt.savefig("fig3_movement_adaptations_grouped_bar.png", dpi=150)
+        plt.savefig(FIG_DIR / "fig3_movement_adaptations_grouped_bar.png", dpi=150)
         plt.close()
-        print("Saved fig3_movement_adaptations_grouped_bar.png")
+        print("Saved figures/fig3_movement_adaptations_grouped_bar.png")
 
 
 
@@ -230,9 +254,9 @@ def main():
         plt.yticks(range(len(env_dmg_pct.index)), env_dmg_pct.index)
         plt.title("Elemental / Damage-Type Adaptations by Environment")
         plt.tight_layout()
-        plt.savefig("fig4_damage_type_adaptations_heatmap.png", dpi=150)
+        plt.savefig(FIG_DIR / "fig4_damage_type_adaptations_heatmap.png", dpi=150)
         plt.close()
-        print("Saved fig4_damage_type_adaptations_heatmap.png")
+        print("Saved figures/fig4_damage_type_adaptations_heatmap.png")
 
 
     # ---------- FIGURE 5: Stat vs CR Dot Plots (HP, STR, DEX, INT) + Regression + Correlation ----------
@@ -276,9 +300,9 @@ def main():
 
     fig.suptitle("Monster Stats vs Challenge Rating (with Trendlines)")
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig("fig5_stats_vs_cr_dotplots_with_trend.png", dpi=150)
+    plt.savefig(FIG_DIR / "fig5_stats_vs_cr_dotplots_with_trend.png", dpi=150)
     plt.close()
-    print("Saved fig5_stats_vs_cr_dotplots_with_trend.png")
+    print("Saved figures/fig5_stats_vs_cr_dotplots_with_trend.png")
 
 
 
@@ -328,9 +352,9 @@ def main():
     plt.yticks(range(len(pivot_pct.index)), pivot_pct.index)
     plt.title("Monster Type Composition by Environment (Percent)")
     plt.tight_layout()
-    plt.savefig("fig6_type_composition_heatmap.png", dpi=150)
+    plt.savefig(FIG_DIR / "fig6_type_composition_heatmap.png", dpi=150)
     plt.close()
-    print("Saved fig6_type_composition_heatmap.png")
+    print("Saved figures/fig6_type_composition_heatmap.png")
 
 
 
